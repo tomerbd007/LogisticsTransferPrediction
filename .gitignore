@@ -1,0 +1,22 @@
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Environments
+.venv/
+venv/
+env/
+
+# Intermediate outputs
+outputs/
+artifacts/
+models/
+figures/
