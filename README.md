@@ -59,7 +59,12 @@ A single fitted `ColumnTransformer`, **fit on the training split only** and reus
 | **Support Vector Machine** | Linear, **RBF via Nyström approximation**, and a full‑RBF reference on a subsample |
 | **Chained MLP → SVM** | Two‑stage: SVM on the MLP's penultimate‑layer embeddings |
 | **End‑to‑end MLP + SVM head** | Documented experiment — squared‑hinge (L2‑SVM) loss (Tang, 2013) |
+| **Decision Tree** | Advanced model — class‑balanced `DecisionTreeClassifier`, complexity grid + cost‑complexity pruning, interpretable rule splits |
 | **Logistic Regression** | Basic linear baseline (`C` tuned by CV) |
+
+> The three required **advanced** models are the **MLP**, the **SVM**, and the **Decision Tree**; the
+> chained MLP→SVM and the end‑to‑end SVM head are documented studies under MLP/SVM, and Logistic
+> Regression is the basic model.
 
 Both the MLP and the SVMs include **offline grid hyper‑parameter tuning** (median vs. KNN imputation,
 architecture/kernel, regularisation), each evaluated by **cross‑validation *and* a held‑out
@@ -68,7 +73,9 @@ validation set** with a per‑config confusion matrix. The expensive sweeps are 
 
 ### Part 4 — Evaluation
 Confusion matrix, **Stratified 5‑Fold cross‑validation with combined ROC curves** for every model, and
-train‑vs‑validation overfitting checks (preprocessing refit per fold — no leakage).
+train‑vs‑validation overfitting checks (preprocessing refit per fold — no leakage). The final
+comparison **ranks all models by mean 5‑fold CV AUC** and overlays their cross‑validated ROC curves on
+one axes.
 
 ### Part 5 — Prediction
 Applies the identical fitted pipeline to `test.csv` and writes the submission CSV.
@@ -77,24 +84,28 @@ Applies the identical fitted pipeline to `test.csv` and writes the submission CS
 
 ## 📊 Results
 
-All models cluster within **~0.002 AUC** — the engineered delay features make the problem
-**near‑saturated** (near‑linearly separable), so the differences are within cross‑validation noise.
+Models are ranked by **5‑fold cross‑validated AUC** (mean ± std across folds) — more robust than a
+single validation split. Everything clusters within **~0.002 AUC**: the engineered delay features make
+the problem **near‑saturated** (near‑linearly separable), so the gaps are within fold‑to‑fold noise.
 
-| Model | Validation / CV AUC |
-|---|:---:|
-| 🥇 **MLP (ANN)** — *final / submission model* | **0.9988** |
-| Chained MLP → SVM (two‑stage) | 0.9987 |
-| End‑to‑end MLP + SVM head (experiment) | 0.9987 |
-| SVM — tuned (KNN + Nyström‑RBF) | 0.9983 (CV) |
-| SVM — Nyström‑RBF | 0.9977 |
-| SVM — Linear | 0.9974 |
-| Logistic Regression (basic) | 0.9972 |
-| SVM — full RBF (8k subsample) | 0.9970 |
+| Rank | Model | 5‑fold CV AUC |
+|:--:|---|:--:|
+| 🥇 1 | Two‑stage MLP → SVM | **0.9987 ± 0.0003** |
+| 2 | **MLP (ANN)** — *final / submission model* | 0.9986 ± 0.0003 |
+| 3 | End‑to‑end MLP + SVM head (experiment) | 0.9986 ± 0.0002 |
+| 4 | SVM — tuned (KNN + Nyström‑RBF) | 0.9983 ± 0.0003 |
+| 5 | Logistic Regression (basic) | 0.9973 ± 0.0004 |
+| 6 | Decision Tree (interpretable) | 0.9963 ± 0.0015 |
 
-**Final choice:** the **MLP** is the strongest and simplest to deploy, so it is used for the Part‑5
-test predictions. The SVM and Logistic‑Regression results confirm the data is highly separable; the
-two‑stage chain shows the MLP embedding is itself near‑linearly classifiable, and the end‑to‑end
-SVM‑head experiment confirms (per the literature) that swapping the loss buys nothing here.
+*Standalone SVM variants explored within the SVM section (held‑out validation AUC, not in the final CV
+comparison): Nyström‑RBF ≈ 0.9977 · Linear ≈ 0.9974 · full‑RBF on an 8k subsample ≈ 0.9970.*
+
+**Final choice:** although the two‑stage chain edges ahead **within noise**, the **MLP** is adopted as
+the **Part‑5 submission model** — it is the strongest *standalone* model and the simplest to deploy.
+The results confirm the data is highly separable: the two‑stage chain shows the MLP embedding is itself
+near‑linearly classifiable, the end‑to‑end SVM‑head experiment confirms (per the literature) that
+swapping the loss buys nothing here, and the interpretable **Decision Tree** trails only slightly — with
+the highest fold‑to‑fold variance, as expected for a single tree.
 
 ---
 
@@ -123,7 +134,7 @@ To point at another location, set `DATA_DIR` before launching: `export DATA_DIR=
 ```bash
 jupyter notebook main.ipynb   # then "Run All"
 ```
-Runs **end‑to‑end in ~10 minutes** on Apple‑Silicon (MPS) — comfortably within the project's 1‑hour
+Runs **end‑to‑end in ~15–25 minutes** on Apple‑Silicon (MPS) — comfortably within the project's 1‑hour
 limit. With a `test.csv` present, Part 5 writes **`Submission_group_15.csv`** (`transfer_id,predict_prob`).
 
 ### Reproducing the hyper‑parameter searches (optional)
@@ -139,6 +150,7 @@ the already‑selected best configurations.
 .
 ├── main.ipynb                  # ← the full project: Parts 1–5, all models, narrative & plots
 ├── README.md
+├── SOURCES.md                  # research, papers & library references (see below)
 ├── INSTRUCTIONS.md             # canonical project guidance
 ├── AGENTS.md                   # entry point for LLM/agent tooling
 ├── data/
@@ -162,8 +174,18 @@ the already‑selected best configurations.
 - **Calibration is intentionally skipped** — AUC is rank‑based, so monotonic score transforms don't
   change it.
 - Required runnable code lives in `main.ipynb`; the notebook is committed **with its outputs**.
-- Models implemented: a **Logistic Regression** basic model plus **MLP** and **SVM** advanced models
-  (with the chained hybrid and the end‑to‑end experiment as documented studies).
+- Models implemented: a **Logistic Regression** basic model plus three advanced models — **MLP**,
+  **SVM**, and **Decision Tree** — with the chained MLP→SVM and the end‑to‑end SVM head as documented
+  studies.
+
+---
+
+## 📚 Sources & references
+
+All research, papers, and library documentation that informed the design are collected in
+**[`SOURCES.md`](SOURCES.md)** — organised by model, with a dedicated section on the **chained
+MLP→SVM** (two‑stage **and** end‑to‑end, after Tang 2013) and the full bibliography from the
+[SVM‑architecture literature review](docs/research_materials/svm_architecture_research.md).
 
 ### Final submission checklist (`submissions/final/`)
 - `main.ipynb` · `Submission_group_15.pdf` · `Submission_group_15.csv`
